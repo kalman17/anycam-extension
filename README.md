@@ -11,7 +11,7 @@
 **MCVO** (*Multi-frame, Camera-only Visual Odometry*) is a transformer that reads a short window of video frames and predicts the relative camera pose between consecutive frames, plus a per-pixel uncertainty map. It sees **images only**. Training needs no ground truth: pretrained depth (UniDepth) and optical-flow (UniMatch) networks and a single-image calibrator (AnyCalib) act as *training-time teachers* through AnyCam's flow-reprojection loss, and are absent at inference. It grew out of a TU Munich master's thesis whose calibration model, MCT, is kept in this repository as the calibration branch (second half of this page).
 
 
-<p align="center"><img src="assets/overview_mcvo.png" alt="MCVO overview: uncalibrated monocular video → frozen DINOv2 → transformer decoder → pose head and calibration head → camera pose of every frame and intrinsics of the sequence; training only: UniDepth, UniMatch and AnyCalib supervise a flow re-projection loss" width="100%"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/overview_mcvo_dark.png"><img src="assets/overview_mcvo.png" alt="MCVO overview: uncalibrated monocular video → frozen DINOv2 → transformer decoder → pose head and calibration head → camera pose of every frame and intrinsics of the sequence; training only: UniDepth, UniMatch and AnyCalib supervise a flow re-projection loss" width="100%"></picture></p>
 <p align="center"><sub>Inference row inside the dotted box; the training row below is what supervises it — three frozen teacher networks feeding one flow re-projection loss, none of them used at test time. Frames from KITTI 07; the trajectory and K illustrate the two outputs.</sub></p>
 ---
 
@@ -28,10 +28,17 @@ Measured here, one protocol: same NVIDIA A40, identical 4-frame windows, CUDA-sy
 | Heading error, KITTI (zero-shot for ours) | 7.0° | 2.2° | 4.6° | 1.3° | 28.6° | 1.2° (trained on KITTI) |
 | Focal error, Sintel / TUM / KITTI | 21.8 % / 13.3 % / 42.4 % | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | — (pose only) |
 
-<p align="center"><img src="assets/benchmark_mcvo.png" alt="Median rotation error vs latency per 4-frame window; bubble area = peak GPU memory; red = trained with ground-truth poses, grey/blue = no labels" width="62%"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_mcvo_dark.png"><img src="assets/benchmark_mcvo.png" alt="Median rotation error vs latency per 4-frame window; bubble area = peak GPU memory; red = trained with ground-truth poses, grey/blue = no labels" width="62%"></picture></p>
 <p align="center"><sub>The same table as a picture: rotation error (mean of the three medians) against latency, bubble area = peak GPU memory. MCVO matches its teacher pipeline (AnyCam) at 5.5× lower latency and 5× less memory, and sits about halfway between the label-free models and the billion-parameter supervised ones.</sub></p>
 
-How to read it, honestly. Against the billion-parameter supervised models MCVO runs at 5–14× lower peak memory and 2–8× lower latency with no labels at any stage, at roughly twice their rotation error, competitive heading on driving video, and near-chance heading on small-baseline indoor video (a limitation that did not respond to longer context, teacher distillation, an epipolar loss, or motion-rich extra data). Against the self-supervised pipelines it matches AnyCam's rotation at 5.5× lower latency. **It is not the cheapest learned pose model**: Monodepth2's photometric pose network — 13 M parameters, 13 ms, 0.09 GiB — is 6× faster and 8× lighter still, and on this protocol it is not far behind: worse rotation on Sintel and KITTI (0.80° / 0.30° vs 0.46° / 0.19°), better on TUM (0.77° vs 0.89°), better heading on Sintel and on KITTI, where it was trained. Patch-based SLAM with bundle adjustment (DPVO) and classical ORB-SLAM are also faster per frame and give far better trajectories, at the price of known intrinsics and (for DPVO) ground-truth poses. What MCVO occupies is the middle: transformer-class rotation accuracy in a window, image-only, no labels, at a small fraction of the cost of the models it approaches. Its intrinsics come from a 1.9k-parameter head on the camera token, distilled from the AnyCalib teacher with everything else frozen (`mcvo_e3_calib.pt`; pose output identical, cost unchanged): teacher-level on the kind of footage it was trained on (Sintel 21.8 %, TUM 13.3 % vs AnyCalib 20.1 / 11.2 %), clearly weaker on KITTI's narrow-FOV driving crops (42.4 % vs 18.4 %), which lie outside the training corpus' focal range. For calibration-critical use pair with the calibration branch below (MCT: 161 ms / 1.4 GiB, 20.4 % on KITTI).
+**What the table says**
+
+- Against the billion-parameter supervised models (π³, VGGT, Depth Anything 3): 5–14× lower peak memory and 2–8× lower latency, no labels at any stage, at roughly twice their rotation error. Heading is competitive on driving video and weak on small-baseline indoor video (see limitations).
+- Against its teacher pipeline (AnyCam): the same rotation accuracy and better heading at 5.5× lower latency, with nothing but images at inference.
+- Against the cheapest learned pose model (Monodepth2's photometric pose net, 13 M parameters, 13 ms): MCVO is heavier but more accurate on Sintel and KITTI (0.46° / 0.19° vs 0.80° / 0.30°) and runs across datasets without per-dataset training; Monodepth2 is better on TUM and on KITTI heading, where it was trained.
+- Patch-based SLAM with bundle adjustment (DPVO) and classical ORB-SLAM give better trajectories, at the price of known intrinsics (and, for DPVO, ground-truth poses for training).
+- Intrinsics come from a 1.9k-parameter head on the camera token, distilled from AnyCalib with everything else frozen (`mcvo_e3_calib.pt`; pose output and cost unchanged): teacher-level on the focal range of the training corpus (Sintel 21.8 %, TUM 13.3 % vs AnyCalib 20.1 / 11.2 %), weaker on KITTI's narrow-FOV driving crops (42.4 % vs 18.4 %). For calibration-critical use, pair it with the MCT branch below (161 ms / 1.4 GiB, 20.4 % on KITTI).
+- In one line: transformer-class rotation accuracy in a window, image-only, label-free, at a small fraction of the cost of the models it approaches.
 
 ## How MCVO works
 
@@ -52,7 +59,12 @@ PYTHONPATH=. python experiments/honest_benchmark.py --run_name mcvo_eval \
     --datasets sintel,tumrgbd,kitti --models mcvo:runs/mcvo/checkpoints/epoch_0006.pt
 ```
 
-**Known limitations, stated plainly.** Intrinsics from the distilled head are teacher-level in-domain but weak on narrow-FOV driving crops (KITTI 42 %). Translation direction on small-baseline indoor video is near chance; four interventions (longer context, teacher distillation, an epipolar/Sampson loss, motion-rich extra data) did not move it and it is treated as structural to flow-reprojection self-supervision when parallax is tiny. Trajectory-level accuracy trails AnyCam's long-context inference (0.18 vs 0.10 Sintel ATE) because short-window errors accumulate. History of every number on this page, including corrections: [CHANGELOG.md](CHANGELOG.md).
+**Limitations**
+
+- Intrinsics from the distilled head are teacher-level in-domain and weak on narrow-FOV driving crops (KITTI 42 %).
+- Translation direction on small-baseline indoor video is near chance. Longer context, teacher distillation, an epipolar/Sampson loss and motion-rich extra data did not change it; it is treated as structural to flow-reprojection self-supervision when parallax is tiny.
+- Trajectory-level accuracy trails AnyCam's long-context inference (0.18 vs 0.10 Sintel ATE) because short-window errors accumulate.
+- Every number on this page, with its corrections, is dated in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -60,7 +72,7 @@ PYTHONPATH=. python experiments/honest_benchmark.py --run_name mcvo_eval \
 
 MCVO predicts pose only. If you need intrinsics, this repository also contains **MCT** (Multi-Frame Calibration Transformer), a 25 M-parameter module that fuses [AnyCalib](https://arxiv.org/abs/2503.12701)'s intermediate features across the frames of a video into one calibration and plugs into the AnyCam pose pipeline — specialist-level focal accuracy at 161 ms / 1.4 GiB per 4-frame window. It comes from the TU Munich master's thesis this project grew out of; the full write-up, results, training phases and reproduction commands are in [`docs/thesis.md`](docs/thesis.md), weights at [`thekman17/anycam-mct`](https://huggingface.co/thekman17/anycam-mct).
 
-<p align="center"><img src="assets/focal_mcvo.png" alt="Focal length over a Sintel sequence: AnyCam's 32-candidate search jumps between discrete values, per-frame AnyCalib scatters, MCT stays near ground truth" width="62%"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/focal_mcvo_dark.png"><img src="assets/focal_mcvo.png" alt="Focal length over a Sintel sequence: AnyCam's 32-candidate search jumps between discrete values, per-frame AnyCalib scatters, MCT stays near ground truth" width="62%"></picture></p>
 <p align="center"><sub>What the multi-frame calibration buys on one sequence (Sintel alley_1, ground truth f = 530 px): the candidate search jumps between discrete focal lengths, per-frame estimates scatter, the multi-frame prediction stays near ground truth.</sub></p>
 
 ## Repository layout
