@@ -1,8 +1,8 @@
-# Honest Evaluation Protocol
+# Evaluation protocol
 
-Goal: measure our model (FAT multi-frame calibration + retrained pose head) against
+Goal: measure our models (MCVO; MCT multi-frame calibration + retrained pose head) against
 vanilla AnyCam (pose + candidate focal) and per-frame AnyCalib (calibration) with a
-protocol that a reviewer would accept, replacing the cherry-picked thesis numbers.
+protocol that a reviewer would accept.
 
 ## Principles
 
@@ -46,7 +46,7 @@ protocol that a reviewer would accept, replacing the cherry-picked thesis number
    Results are reported for both, for all methods, with the regime stated.
 8. **Full-sequence trajectory metrics** (ATE/RPE after Sim(3) alignment, AnyCam paper
    protocol via `anycam/scripts/evaluate_trajectories.py`) are the pose headline; window
-   metrics are secondary/diagnostic. (Stage 2 — pending.)
+   metrics are secondary/diagnostic.
 
 ## Provenance
 

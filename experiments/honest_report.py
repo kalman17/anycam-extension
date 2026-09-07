@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-TDIR_MIN_GT_NORM = 1e-4  # pre-declared rule (HONEST_EVAL_PROTOCOL.md §6)
+TDIR_MIN_GT_NORM = 1e-4  # pre-declared rule (docs/evaluation.md §6)
 RNG = np.random.default_rng(0)
 
 
