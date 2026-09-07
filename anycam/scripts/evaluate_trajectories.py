@@ -210,6 +210,72 @@ def get_ours_function(model_path, window: int = 4, input_normalization: bool = T
     return run_ours
 
 
+def get_mcvo_function(ckpt_path, window: int = 4):
+    """MCVO (image-only self-supervised VO) with FVO-style confidence-weighted
+    aggregation of overlapping windows.
+
+    Each consecutive pair (i,i+1) is predicted by up to `window-1` overlapping
+    windows; predictions are fused with weights softmax(-uncertainty):
+    rotation via weighted quaternion mean (sign-aligned), translation via
+    weighted mean. Loss convention: P maps cam_i points to cam_{i+1}; c2w
+    relative pose = inv(P).
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from mcvo.model import MCVO
+
+    ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    a = ck["args"]
+    model = MCVO(backbone=a.get("backbone", "facebook/dinov2-small"),
+                 d_model=a.get("d_model", 384), depth=a.get("depth", 6),
+                 heads=a.get("heads", 6)).cuda()
+    model.load_state_dict(ck["model_state_dict"])
+    model.eval()
+
+    def fuse_relpose(cands):
+        """cands: list of (4x4 c2w rel pose np, weight)."""
+        ws = np.array([w for _, w in cands], dtype=np.float64)
+        ws = np.exp(-(ws - ws.min()))
+        ws = ws / ws.sum()
+        # translation
+        t = sum(w * P[:3, 3] for (P, _), w in zip(cands, ws))
+        # rotation via weighted quaternion mean
+        quats = []
+        for (P, _), w in zip(cands, ws):
+            q = matrix_to_quaternion(torch.tensor(P[:3, :3]).unsqueeze(0))[0].numpy()
+            if quats and np.dot(q, quats[0][0]) < 0:
+                q = -q
+            quats.append((q, w))
+        qm = sum(w * q for q, w in quats)
+        qm = qm / (np.linalg.norm(qm) + 1e-12)
+        R = quaternion_to_matrix(torch.tensor(qm).unsqueeze(0))[0].numpy()
+        T = np.eye(4); T[:3, :3] = R; T[:3, 3] = t
+        return T
+
+    def run_mcvo(imgs, proj, seq_name):
+        frames = [torch.from_numpy(im.astype(np.float32) / 255.0).permute(2, 0, 1)
+                  for im in imgs]
+        n = len(frames)
+        pair_cands = [[] for _ in range(n - 1)]
+        for s in range(0, max(1, n - window + 1)):
+            end = min(s + window, n)
+            clip = torch.stack(frames[s:end]).unsqueeze(0).cuda()
+            with torch.no_grad():
+                out = model(images=clip)
+            P = out["poses"][0, :, 0].float().cpu().numpy()
+            conf = out["pair_conf"][0].float().cpu().numpy()  # lower = more confident
+            for i in range(end - s - 1):
+                rel_c2w = np.linalg.inv(P[i])
+                pair_cands[s + i].append((rel_c2w, float(conf[i])))
+        absp = [np.eye(4, dtype=np.float64)]
+        for i in range(n - 1):
+            rel = fuse_relpose(pair_cands[i]) if pair_cands[i] else np.eye(4)
+            absp.append(absp[-1] @ rel)
+        poses_t = [torch.tensor(p, dtype=torch.float64) for p in absp]
+        return poses_t, torch.eye(3, dtype=torch.float64)
+
+    return run_mcvo
+
 
 def get_vggsfm_function():
     colmap_command_template = "cd /storage/user/wimbauer/bts_2/vggsfm; /usr/bin/env /usr/wiss/wimbauer/miniconda3/envs/vggsfm_tmp/bin/python demo.py SCENE_DIR={} shared_camera=True"
@@ -635,6 +701,11 @@ def main(conf):
             ours_window = int(os.environ.get("OURS_TRAJ_WINDOW", "4"))
             model = get_ours_function(model_path, window=ours_window)
             name = f"ours_w{ours_window}" if ours_window != 4 else "ours"
+            mode = "global"
+        elif other_model == "mcvo":
+            mcvo_window = int(os.environ.get("MCVO_TRAJ_WINDOW", "4"))
+            model = get_mcvo_function(model_path, window=mcvo_window)
+            name = f"mcvo_w{mcvo_window}"
             mode = "global"
         elif other_model == "dust3r":
             raise NotImplementedError

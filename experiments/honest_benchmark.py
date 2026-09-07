@@ -1,7 +1,7 @@
 """
 Honest window-level benchmark: ours (FAT) vs vanilla AnyCam vs per-frame AnyCalib.
 
-See HONEST_EVAL_PROTOCOL.md. Key properties:
+See docs/evaluation.md. Key properties:
 - standard test splits, per-sequence balanced deterministic windows
 - same windows for every model; failures recorded as rows, never skipped
 - baselines intact (strict loading; no GT intrinsics to any method)
@@ -61,12 +61,27 @@ def image_size_for(dataset: str, mode: str):
     if mode == "aspect336":
         h, w = NATIVE_SIZE[dataset]
         return (336, _mult14(336 * w / h))
+    if mode == "native":
+        # calib_bench loaders only: aspect kept, long side <= 1024, dims /14 — each
+        # model then applies its OWN official preprocessing (own-preprocessing protocol)
+        return None
     raise ValueError(mode)
 
 
 # ---------------------------------------------------------------------------
 # Datasets
 # ---------------------------------------------------------------------------
+
+def build_dataset_calib(name: str, image_size, frame_count: int, dilation=None):
+    """calib_bench loaders (uniform antialiased resize, more datasets). Additive path;
+    the legacy loaders below are untouched."""
+    from experiments.calib_bench.datasets import build
+    ds = build(name, image_size, frame_count, dilation)
+    per_seq = {}
+    for idx, (seq, start) in enumerate(ds._datapoints):
+        per_seq.setdefault(seq, []).append(idx)
+    return ds, per_seq
+
 
 def build_dataset(name: str, image_size, frame_count: int):
     from anycam.datasets.common import flow_selector_seq
@@ -282,8 +297,6 @@ class Pi3Model:
 
 
 
-
-
 class MCVOModel:
     """Our image-only self-supervised VO (mcvo package). Pose-only for now.
 
@@ -297,14 +310,17 @@ class MCVOModel:
         from mcvo.model import MCVO
         ck = torch.load(ckpt, map_location="cpu", weights_only=False)
         a = ck["args"]
+        sd = ck["model_state_dict"]
         self.model = MCVO(backbone=a.get("backbone", "facebook/dinov2-small"),
                           d_model=a.get("d_model", 384), depth=a.get("depth", 6),
                           heads=a.get("heads", 6)).to(device)
-        sd = ck["model_state_dict"]
         # checkpoints trained before the calibration head existed lack calib_head.*; that is
         # the ONLY tolerated gap (the head stays at its zero init = prior, and we report no
         # intrinsics for such checkpoints). Anything else must match exactly.
-        self.has_calib = any(k.startswith("calib_head.") for k in sd)
+        # report intrinsics only from a TRAINED calibration head; a zero-init head (created by
+        # default, never trained when lambda_calib=0) would report the prior as a prediction
+        cw = sd.get("calib_head.weight")
+        self.has_calib = cw is not None and bool(cw.abs().sum() > 0)
         missing, unexpected = self.model.load_state_dict(sd, strict=False)
         bad = [k for k in missing if not k.startswith("calib_head.")]
         if bad or unexpected:
@@ -326,6 +342,54 @@ class MCVOModel:
             c = out["calib"][0].float().cpu().numpy()   # [N,4] fx fy cx cy at input res
             intr, per_frame = c.mean(0), c.tolist()
         return {"pred_poses": np.stack(absp), "intr": intr, "per_frame_intr": per_frame}
+
+
+
+
+class DA3Model:
+    """Depth Anything 3 (GT/teacher-supervised, ByteDance). w2c extrinsics + intrinsics."""
+    name_prefix = "da3"
+
+    def __init__(self, device: str, repo: str = "depth-anything/DA3NESTED-GIANT-LARGE"):
+        from depth_anything_3.api import DepthAnything3
+        self.model = DepthAnything3.from_pretrained(repo).to(device=torch.device(device))
+        self.device = device
+
+    def __call__(self, sample):
+        imgs = (sample["imgs"].transpose(0, 2, 3, 1) * 255).astype(np.uint8)  # [N,H,W,3]
+        H, W = imgs.shape[1:3]
+        pred = self.model.inference([imgs[i] for i in range(imgs.shape[0])])
+        ph, pw = pred.processed_images.shape[1:3]
+        c2w = []
+        for E in pred.extrinsics:
+            T = np.eye(4); T[:3, :4] = E
+            c2w.append(np.linalg.inv(T))
+        K = pred.intrinsics  # [N,3,3] in processed res
+        sx, sy = W / pw, H / ph
+        intr = np.stack([[k[0, 0] * sx, k[1, 1] * sy, k[0, 2] * sx, k[1, 2] * sy]
+                         for k in K]).mean(0)
+        return {"pred_poses": np.stack(c2w), "intr": intr}
+
+
+# ---------------------------------------------------------------------------
+# Metrics per window
+# ---------------------------------------------------------------------------
+
+def pose_rows(pred_poses, gt_poses):
+    """Consecutive-pair errors. pred_poses[i] = T_{i->last} convention."""
+    n_pairs = min(len(pred_poses) - 1, gt_poses.shape[0] - 1)
+    rows = []
+    for i in range(n_pairs):
+        pred_rel = np.linalg.inv(pred_poses[i]) @ pred_poses[i + 1]
+        gt_rel = np.linalg.inv(gt_poses[i]) @ gt_poses[i + 1]
+        rows.append({
+            "pair": i,
+            "rot_err_deg": float(rotation_error_degrees(pred_rel[:3, :3], gt_rel[:3, :3])),
+            "tdir_err_deg": float(translation_direction_error_degrees(pred_rel[:3, 3], gt_rel[:3, 3])),
+            "gt_t_norm": float(np.linalg.norm(gt_rel[:3, 3])),
+            "pred_t_norm": float(np.linalg.norm(pred_rel[:3, 3])),
+        })
+    return rows
 
 
 def calib_metrics(intr, gt_intr_mean):
@@ -353,17 +417,49 @@ def gpu_temp():
         return -1
 
 
+def _ckpt_fingerprint(path, chunk=1 << 20):
+    """Identity of a checkpoint file: size, mtime, sha256 of first+last MiB.
+
+    Partial hash on purpose: full hashes of 1 GB files over NFS take minutes per
+    eval, and size+mtime+edges is already enough to tell two training runs apart.
+    """
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        return {"error": str(e)}
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        h.update(f.read(chunk))
+        if st.st_size > 2 * chunk:
+            f.seek(-chunk, os.SEEK_END)
+            h.update(f.read(chunk))
+    return {
+        "size": st.st_size,
+        "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+        "sha256_edges": h.hexdigest()[:16],
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run_name", required=True)
     ap.add_argument("--datasets", default="sintel,tumrgbd,kitti")
     ap.add_argument("--models", default="ours,anycam,anycalib")
     ap.add_argument("--ours_ckpt", default=str(REPO / "thesis_results/checkpoints/phase_Cb_v6_h100_epoch_0002.pt"))
-    ap.add_argument("--image_mode", default="square336", choices=["square336", "aspect336"])
+    ap.add_argument("--image_mode", default="square336", choices=["square336", "aspect336", "native"])
     ap.add_argument("--windows_per_seq", type=int, default=16)
     ap.add_argument("--frame_count", type=int, default=4)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--max_temp", type=int, default=87)
+    # --- calibration-benchmark extensions (paper). Defaults keep legacy behaviour. ---
+    ap.add_argument("--loader", default="legacy", choices=["legacy", "calib"],
+                    help="calib = experiments/calib_bench loaders (uniform antialiased "
+                         "resize; kitti360/euroc/tartanair/objectron/panosynth available)")
+    ap.add_argument("--dilation", type=int, default=None, help="override per-dataset dilation (calib loader)")
+    ap.add_argument("--mct_ckpt", default=None, help="MCT checkpoint for ours_calib/ours_field/ours_multicrop")
+    ap.add_argument("--mct_tau", type=float, default=0.2)
+    ap.add_argument("--motion", action="store_true", help="add motion-observability label per window (needs GT poses)")
+    ap.add_argument("--max_seqs", type=int, default=None, help="evenly-spaced subset of sequences (calib loader; e.g. TartanAir)")
     args = ap.parse_args()
 
     out_dir = REPO / "honest_benchmarks" / args.run_name
@@ -414,19 +510,61 @@ def main():
             models["da3"] = DA3Model(args.device)
         elif m.startswith("mcvo:"):
             models["mcvo"] = MCVOModel(m.split(":", 1)[1], args.device)
+        # --- calibration-benchmark adapters (experiments/calib_bench/models_extra.py) ---
+        elif m in ("ours_calib", "ours_field", "ours_multicrop"):
+            from experiments.calib_bench.models_extra import OursCalib
+            mode = {"ours_calib": "adaptive", "ours_field": "field", "ours_multicrop": "multicrop"}[m]
+            models[m] = OursCalib(args.device, ckpt=args.mct_ckpt, mode=mode, tau=args.mct_tau)
+        elif m == "anycam_cand":
+            from experiments.calib_bench.models_extra import AnyCamCandidates
+            models[m] = AnyCamCandidates(args.device)
+        elif m == "geocalib":
+            from experiments.calib_bench.models_extra import GeoCalibModel
+            models[m] = GeoCalibModel(args.device)
+        elif m == "unidepth":
+            from experiments.calib_bench.models_extra import UniDepthIntr
+            models[m] = UniDepthIntr(args.device)
+        elif m in ("vggt_native", "vggt_pad"):
+            from experiments.calib_bench.models_extra import VGGTNative
+            models[m] = VGGTNative(args.device, mode="crop" if m == "vggt_native" else "pad")
+        elif m == "pi3_native":
+            from experiments.calib_bench.models_extra import Pi3Native
+            models[m] = Pi3Native(args.device)
+        elif m == "monodepth2":
+            from experiments.calib_bench.models_extra import Monodepth2Pose
+            models[m] = Monodepth2Pose(args.device)
         else:
             raise ValueError(m)
         print(f"[model] {m} ready in {time.time()-t0:.1f}s")
 
     meta["models"] = list(models)
+    # Fingerprint every checkpoint file, not just its path. A path can be reused by a
+    # later training run (this happened: mcvo_e4epi/epoch_0001.pt was written by a
+    # lambda=1.0 job and then overwritten by the lambda=0.2 rerun, so two evals of the
+    # "same" checkpoint disagreed). Size + mtime + partial hash makes that visible.
+    ckpt_paths = [args.ours_ckpt] + [
+        m.split(":", 1)[1] for m in args.models.split(",") if ":" in m
+    ]
+    meta["checkpoints"] = {p: _ckpt_fingerprint(p) for p in ckpt_paths}
     with open(out_dir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
     rows_f = open(rows_path, "a")
 
+    if args.loader == "calib" or args.motion:
+        from experiments.calib_bench.metrics import calib_metrics_full
+        from experiments.calib_bench.motion import window_motion
+
     for ds_name in args.datasets.split(","):
         image_size = image_size_for(ds_name, args.image_mode)
-        ds, per_seq = build_dataset(ds_name, image_size, args.frame_count)
+        if args.loader == "calib":
+            ds, per_seq = build_dataset_calib(ds_name, image_size, args.frame_count, args.dilation)
+            if args.max_seqs and len(per_seq) > args.max_seqs:
+                keys = sorted(per_seq)
+                pos = np.linspace(0, len(keys) - 1, args.max_seqs).round().astype(int)
+                per_seq = {keys[p]: per_seq[keys[p]] for p in sorted(set(pos.tolist()))}
+        else:
+            ds, per_seq = build_dataset(ds_name, image_size, args.frame_count)
         sel = select_windows(per_seq, args.windows_per_seq)
         n_total = sum(len(v) for v in sel.values())
         window_hash = hashlib.sha256(json.dumps(sel, sort_keys=True).encode()).hexdigest()[:12]
@@ -437,6 +575,7 @@ def main():
                 seq_, start = ds._datapoints[ds_idx]
                 assert seq_ == seq
                 sample = None
+                window_rows = []
                 for model_name, model in models.items():
                     key = (ds_name, seq, int(start), model_name)
                     if key in done:
@@ -453,7 +592,8 @@ def main():
                             # RGB in [0,1] (the 2026-08-17 KITTI fault was uint8 0..255 here)
                             if _im.dtype.kind != "f" or float(_im.max()) > 1.0 + 1e-3 or float(_im.min()) < -1e-3:
                                 raise RuntimeError(f"loader returned imgs dtype={_im.dtype} range=[{_im.min()},{_im.max()}], expected float in [0,1]")
-                        gt_poses = np.asarray(sample["poses"], dtype=np.float64).reshape(-1, 4, 4)
+                        gt_poses = (np.asarray(sample["poses"], dtype=np.float64).reshape(-1, 4, 4)
+                                    if sample.get("poses") is not None else None)
                         projs = np.asarray(sample["projs"], dtype=np.float64)
                         gt_intr = np.stack([
                             [projs[i, 0, 0], projs[i, 1, 1], projs[i, 0, 2], projs[i, 1, 2]]
@@ -464,17 +604,45 @@ def main():
                         out = model(sample)
                         row["time_s"] = round(time.time() - t0, 3)
 
-                        if out["pred_poses"] is not None:
+                        if out["pred_poses"] is not None and gt_poses is not None:
                             row["pose"] = pose_rows(out["pred_poses"], gt_poses)
                         if out.get("intr") is not None:
                             row["calib"] = calib_metrics(out["intr"], gt_intr)
+                            if args.loader == "calib":
+                                h, w = sample["imgs"].shape[-2:]
+                                row["calib"].update(calib_metrics_full(out["intr"], gt_intr, h, w))
                         if out.get("per_frame_intr") is not None:
                             row["per_frame_intr"] = out["per_frame_intr"]
+                        if out.get("extra") is not None:
+                            row["extra"] = out["extra"]
+                        if args.loader == "calib":
+                            row["native_hw"] = list(sample.get("native_hw", ()))
+                            row["ids"] = [int(i) for i in sample["ids"]]
                     except Exception as e:
                         row["error"] = f"{type(e).__name__}: {e}"
                         row["traceback"] = traceback.format_exc()[-1500:]
+                    window_rows.append(row)
+
+                # motion-observability label: same for every model of the window; scale from
+                # GT depth if the loader has it, else from AnyCam's depth teacher if it ran
+                if args.motion and window_rows and sample is not None and sample.get("poses") is not None:
+                    try:
+                        dm = sample.get("depth_med")
+                        if dm is None:
+                            for r in window_rows:
+                                v = (r.get("extra") or {}).get("unidepth_med_m")
+                                if v is not None:
+                                    dm = v
+                                    break
+                        mo = window_motion(np.asarray(sample["poses"], dtype=np.float64), dm)
+                        for r in window_rows:
+                            r["motion"] = mo
+                    except Exception as e:
+                        for r in window_rows:
+                            r["motion_error"] = f"{type(e).__name__}: {e}"
+                for row in window_rows:
                     rows_f.write(json.dumps(row) + "\n")
-                    rows_f.flush()
+                rows_f.flush()
 
             t = gpu_temp()
             if t >= args.max_temp:

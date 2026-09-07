@@ -8,6 +8,7 @@ input is raw images.
 
 from typing import Dict
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -16,11 +17,25 @@ from anycam.trainer import induce_flow_dist, make_proj_from_focal_length
 EPS = 1e-4
 
 
-def mcvo_selfsup_loss(out: Dict, data: Dict) -> Dict:
+def teacher_depth_for_geometry(depths_cached: torch.Tensor, legacy: bool = False) -> torch.Tensor:
+    """Cached teacher depth is stored as UniDepth-wrapper INVERSE depth, 1 / (D * 0.1).
+    induce_flow_dist -> unproject_points multiplies camera rays by its input, i.e. it expects
+    DEPTH. AnyCam's own trainer therefore inverts the wrapper output (depths = 1 / out) before
+    the geometry. Until 2026-08-18 this loss fed `cached * 0.1 = 1 / D` — inverse depth where
+    depth was expected (inherited from the thesis wrapper). Rotation-induced flow is
+    depth-independent, so rotation trained fine; translation-induced flow became ∝ t·Z instead
+    of t/Z (inverted parallax), which plausibly explains the near-chance indoor heading.
+    legacy=True reproduces the old behaviour for the released E3 numbers."""
+    if legacy:
+        return depths_cached * 0.1
+    return 1.0 / depths_cached.clamp(min=1e-6)      # = D * 0.1, AnyCam's geometry convention
+
+
+def mcvo_selfsup_loss(out: Dict, data: Dict, legacy_depth: bool = False) -> Dict:
     """out: MCVO forward output. data: batch from PreprocessedMultiFrameDataset
     (phase-A fields: images, depths, flows_fwd, occs_fwd, calibs)."""
     images = data["images"]
-    depths = data["depths"]          # [B, N, 1, H, W] raw inverse depth
+    depths = data["depths"]          # [B, N, 1, H, W] cached teacher (inverse) depth
     flows_fwd = data["flows_fwd"]    # [B, N-1, 2, H, W] pixel flow
     occs_fwd = data["occs_fwd"]      # [B, N-1, 1, H, W]
     calibs = data["calibs"]          # [B, N, 4]
@@ -43,9 +58,9 @@ def mcvo_selfsup_loss(out: Dict, data: Dict) -> Dict:
     poses = out["poses"]             # [B, N, 1, 4, 4]
     uncert = out["uncert"]           # [B, N, 1, 1, H, W]
 
-    aligned_depths = depths.unsqueeze(2)  # [B, N, 1, 1, H, W]
+    aligned_depths = teacher_depth_for_geometry(depths, legacy=legacy_depth).unsqueeze(2)  # [B, N, 1, 1, H, W]
     induced_flow, _ = induce_flow_dist(
-        aligned_depths * 0.1, proj, poses, flow_occs[:, :, :2],
+        aligned_depths, proj, poses, flow_occs[:, :, :2],
     )
 
     target_flow = flow_occs[:, :-1, :2]
@@ -233,3 +248,5 @@ def calib_distill_loss(out: Dict, data: Dict) -> Dict:
         f_tgt = 0.5 * (calibs[..., 0] + calibs[..., 1])
         rel = ((f_pred - f_tgt).abs() / f_tgt).mean()
     return {"calib_distill": l_f + 0.5 * l_c, "calib_rel_f_err": rel}
+
+
