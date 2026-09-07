@@ -28,7 +28,7 @@
 set -e  # Exit on any error
 
 # Set dataset paths (can be overridden with environment variables)
-DATASETS_ROOT=${DATASETS_ROOT:-/home/kalmanm/Documents/thesis}
+DATASETS_ROOT=${DATASETS_ROOT:-data}
 OBJECTRON_VIDEOS="${DATASETS_ROOT}/Objectron/videos"
 OBJECTRON_GT="${DATASETS_ROOT}/Objectron/processed_gt"
 LIGHTSPEED_DIR="${DATASETS_ROOT}/dynpose-100k/lightspeed"

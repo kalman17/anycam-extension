@@ -8,7 +8,7 @@ Reads results.json files from per-epoch subdirectories and generates:
 
 Usage:
     python experiments/aggregate_benchmark_results.py \
-        --results_dir /storage/user/maka/train/phase_C/benchmark_results
+        --results_dir <train_dir>/benchmark_results
 """
 
 import argparse

@@ -10,12 +10,12 @@ UnifiedTrainingWrapper checkpoints + multi-dataset GT evaluation.
 
 Usage:
     python experiments/benchmark_phase_c_checkpoints.py \
-        --checkpoint_dir /storage/user/maka/train/phase_C/checkpoints \
+        --checkpoint_dir <train_dir>/checkpoints \
         --anycam_config pretrained_models/anycam_seq8/training_config.yaml \
         --pretrained_anycam pretrained_models/anycam_seq8/training_checkpoint_247500.pt \
-        --data_root /storage/user/maka/eval_datasets \
+        --data_root <eval_datasets> \
         --datasets sintel,tumrgbd,lightspeed \
-        --output_dir /storage/user/maka/train/phase_C/benchmark_results
+        --output_dir <train_dir>/benchmark_results
 """
 
 import argparse
@@ -874,15 +874,15 @@ def parse_args():
 Examples:
   # Benchmark a single checkpoint:
   python experiments/benchmark_phase_c_checkpoints.py \\
-      --single_checkpoint /storage/user/maka/train/phase_C/checkpoints/epoch_0001.pt \\
-      --data_root /storage/user/maka/eval_datasets \\
-      --output_dir /storage/user/maka/train/phase_C/benchmark_results
+      --single_checkpoint <train_dir>/checkpoints/epoch_0001.pt \\
+      --data_root <eval_datasets> \\
+      --output_dir <train_dir>/benchmark_results
 
   # Benchmark all checkpoints in a directory:
   python experiments/benchmark_phase_c_checkpoints.py \\
-      --checkpoint_dir /storage/user/maka/train/phase_C/checkpoints \\
-      --data_root /storage/user/maka/eval_datasets \\
-      --output_dir /storage/user/maka/train/phase_C/benchmark_results
+      --checkpoint_dir <train_dir>/checkpoints \\
+      --data_root <eval_datasets> \\
+      --output_dir <train_dir>/benchmark_results
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

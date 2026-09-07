@@ -17,8 +17,8 @@ This script settles it three ways, on the same sequences:
      -> this is the proposed fix; it should beat zero-motion clearly
 
 Usage: PYTHONPATH=$REPO python mcvo/diagnose_teacher_geometry.py \
-           --data_dir /storage/user/maka/preprocessed \
-           --pose_dir /storage/user/maka/pseudo_poses --n 40
+           --data_dir /path/to/preprocessed \
+           --pose_dir /path/to/pseudo_poses --n 40
 """
 
 import argparse

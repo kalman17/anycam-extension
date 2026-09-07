@@ -82,7 +82,7 @@ python experiments/cycle-consistency/run_cycle_consistency_test.py \
 
 # Your own video with temporal sampling
 python experiments/cycle-consistency/run_cycle_consistency_test.py \
-    --input /home/kalman/Videos/anycam-tests/three_frames.mp4 \
+    --input path/to/three_frames.mp4 \
     --frames 3 --start-frame 0 --skip-frames 1
 
 # Custom sequence with large temporal gaps

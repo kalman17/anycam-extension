@@ -6,7 +6,7 @@ Paths can be overridden using environment variables for easy machine-specific co
 
 Usage:
     # Set environment variable (recommended):
-    export DATASETS_ROOT=/home/kalmanm/Documents/thesis
+    export DATASETS_ROOT=/path/to/datasets
     
     # Or set individual paths:
     export OBJECTRON_ROOT=/path/to/Objectron
@@ -22,7 +22,7 @@ import os
 # Base datasets root directory
 # Can be overridden with DATASETS_ROOT environment variable
 DEFAULT_DATASETS_ROOT = Path(
-    os.environ.get("DATASETS_ROOT", "/home/kalmanm/Documents/thesis")
+    os.environ.get("DATASETS_ROOT", "data")
 )
 
 # Objectron dataset paths

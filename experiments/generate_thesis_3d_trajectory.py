@@ -645,8 +645,8 @@ def main():
     # Auto-detect data root
     data_root = args.data_root
     if data_root is None:
-        for candidate in ['/storage/user/maka/eval_datasets', '/data/thesis',
-                          '/home/kalman/TUM/thesis']:
+        for candidate in ['data/eval', '/data/thesis',
+                          'datasets']:
             if Path(candidate).exists():
                 data_root = candidate
                 break

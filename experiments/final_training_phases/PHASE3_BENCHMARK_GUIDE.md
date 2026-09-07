@@ -82,7 +82,7 @@ Epoch    Rot(°)       Trans(°)     FAT MAPE(%)      AnyCalib MAPE(%)
 
 ## Ground Truth Format
 
-GT files located in: `/data/thesis/Objectron/processed_gt/` (Docker) or `/home/kalmanm/git/masters/Objectron/processed_gt/` (host)
+GT files located in: `/data/thesis/Objectron/processed_gt/` (Docker) or `<datasets_root>/Objectron/processed_gt/` (host)
 
 ### File Naming
 - Videos: `batch-X_Y_video.MOV`

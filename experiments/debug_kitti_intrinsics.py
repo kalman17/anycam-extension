@@ -14,9 +14,9 @@ from experiments.benchmark_phase_c_checkpoints import (
 
 
 def main():
-    data_root = "/storage/user/maka/eval_datasets"
-    anycam_config = "/storage/user/maka/anycam/pretrained_models/anycam_seq8/training_config.yaml"
-    phase_c_ckpt = "/storage/user/maka/train/phase_C_v3_h100/checkpoints/epoch_0005.pt"
+    data_root = "data/eval"
+    anycam_config = "pretrained_models/anycam_seq8/training_config.yaml"
+    phase_c_ckpt = "<phase_C_checkpoint>.pt"
 
     device = torch.device("cuda:0")
 
@@ -122,7 +122,7 @@ def main():
     # Also check AnyCam baseline 32-candidate system
     print(f"\n--- AnyCam Baseline (32-candidate) ---")
     from experiments.benchmark_phase_c_checkpoints import create_baseline_model, _run_model_forward
-    pretrained_path = "/storage/user/maka/anycam/pretrained_models/anycam_seq8/training_checkpoint_247500.pt"
+    pretrained_path = "pretrained_models/anycam_seq8/training_checkpoint_247500.pt"
     baseline_model = create_baseline_model(anycam_config, pretrained_path, device)
     baseline_model.eval()
     with torch.no_grad():

@@ -67,7 +67,7 @@ def inspect_data(data, max_depth=3, current_depth=0):
 
 if __name__ == "__main__":
     # Path to the PKL file
-    pkl_file_path = "/home/kalman/datasets/dynpose_subset/annotations/dynpose_100k/cameras/db125ab2-fcea-4945-8aba-133c4e4fc724.pkl"
+    pkl_file_path = "<path/to/cameras.pkl>"
     
     print(f"Reading PKL file: {pkl_file_path}")
     print("=" * 60)
