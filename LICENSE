@@ -1,6 +1,7 @@
 MIT License
 
-Copyright (c) 2025 Felix Wimbauer
+Copyright (c) 2025 Felix Wimbauer (AnyCam)
+Copyright (c) 2026 Kalman Mahlich (mcvo/, experiments/, docs/)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +20,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Third-party code in this repository
+
+- anycam/          AnyCam (Wimbauer et al., CVPR 2025) — MIT, https://github.com/Brummi/anycam
+- anycalib/        AnyCalib (submodule) — Apache-2.0, https://github.com/javrtg/AnyCalib
+- unimatch/        UniMatch (submodule) — MIT, https://github.com/autonomousvision/unimatch
+- minipytorch3d/   subset of PyTorch3D as vendored by VGGSfM — BSD-3-Clause, Meta Platforms, Inc.
