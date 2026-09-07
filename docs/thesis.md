@@ -14,7 +14,7 @@ Trained fully self-supervised on ~82 k frames of in-the-wild video, the fused sy
 | **Focal error, driving windows** | 20.4 % | AnyCalib 18.4 % · AnyCam 66.9 % | KITTI |
 | **Rotation error** (median) | **0.40° vs 0.50°** | AnyCam | MPI Sintel |
 
-Only **~25 M of ~370 M parameters (7.5 %)** are trainable; all pretrained backbones (DINOv2 ViT-L/14, DINOv2 ViT-S/14, UniDepth, UniMatch) remain frozen.
+Only **~25 M of ~460 M parameters (5 %)** are trainable; all pretrained backbones (DINOv2 ViT-L/14, DINOv2 ViT-S/14, UniDepth, UniMatch) remain frozen.
 
 > **Note (August 2026; tables updated 17 August 2026 — see [CHANGELOG.md](../CHANGELOG.md)).** The results on this page supersede the numbers in the original thesis document. An audit of the evaluation pipeline uncovered three measurement bugs (a silently broken baseline among them); after fixing them and retraining the calibration module with corrected input handling, all benchmarks were rerun from scratch — including against VGGT, Pi3 and Depth Anything 3. The full chronology is in [CHANGELOG.md](../CHANGELOG.md). Raw per-window results for every table below are in [`honest_benchmarks/`](../honest_benchmarks/) and can be recomputed with `experiments/honest_report.py`.
 
@@ -78,7 +78,6 @@ For each spatial position, MCT treats the N frames as a sequence of tokens and a
 
 **The key design choice: aggregate at the feature level, not the output level.** Per-frame calibration networks produce noisy intrinsics that *should* be averaged across a video — intrinsics are physically constant within a sequence. But naive scalar averaging of final predictions discards the rich spatial structure in the backbone's intermediate representations. Feature-level aggregation preserves geometric information that scalar averaging would throw away. The numbers bear this out:
 
-> On TUM-RGBD, feature-level aggregation (MCT) cuts calibration MAPE from **11.7 % → 7.9 %** vs. per-frame averaging of the *same* AnyCalib backbone — a 32.5 % relative reduction from a one-line architectural change.
 
 The MCT's output is then fed back into AnyCam's pose head via a learned **focal embedding** (8-dim harmonic encoding), replacing AnyCam's expensive 32-candidate focal-length selection system. The two branches are trained jointly: improved calibration directly benefits pose, and the pose-side flow reprojection loss propagates gradient signal back into the MCT.
 
