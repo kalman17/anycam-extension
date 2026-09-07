@@ -1,0 +1,6 @@
+config_path: null
+dataset_path: anycam/configs/dataset_cfgs/tumrgbd_monst3r.yaml
+model_path: /storage/user/maka/train/e3prime/checkpoints/epoch_0006.pt
+other_model: mcvo
+split_path: null
+with_rerun: false
