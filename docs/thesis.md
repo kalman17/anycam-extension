@@ -30,9 +30,7 @@ This is a fork of the [AnyCam (CVPR 2025)](https://github.com/Brummi/anycam) cod
 | **Calibration ↔ pose coupling** | Wrapper that injects MCT-aggregated focal length into AnyCam's pose head via an 8-dim harmonic focal embedding | `experiments/train_pose_head_anycalib*.py` |
 | **Three-phase staged training** | Pose-head warm-start → MCT pre-training → joint self-supervised fine-tuning, unified entry point | `experiments/train_unified.py` |
 | **Evaluation suite** | MPI Sintel · TUM-RGBD · KITTI · Objectron benchmarks | `experiments/benchmark_*.py` |
-| **Final training artefacts** | Loss histories, training logs, benchmark outputs, figures from the thesis runs | `experiments/final_training_phases/` &nbsp;·&nbsp; `thesis_results/` |
-| **Thesis source** | LaTeX project, figures, bibliography | `kalman-tum-thesis-latex-master/` |
-| **Defense presentation** | Beamer slides (TUM theme) | `presentation/` |
+| **Final training artefacts** | Loss histories and figure data from the thesis runs | `experiments/final_training_phases/` &nbsp;·&nbsp; `thesis_results/figures/` |
 
 > **Naming note.** The calibration head went through two working names during development ("DA3", then "FAT"); code and docs now consistently use the thesis name **MCT (Multi-Frame Calibration Transformer)**. Old class names remain as aliases.
 
