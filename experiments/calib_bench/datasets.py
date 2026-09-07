@@ -421,7 +421,7 @@ class Objectron(SeqDataset):
     poses = ARKit camera transforms (x right, y up, z backward), intrinsics for the
     LANDSCAPE sensor -> swapped for the portrait frame (fx<->fy, cx<->cy)."""
     NAME = "objectron"
-    ROOT = Path(os.environ.get("OBJECTRON_ROOT", "/home/kalmanm/Documents/thesis/Objectron"))
+    ROOT = Path(os.environ.get("OBJECTRON_ROOT", "data/objectron"))
     FLIP = np.diag([1.0, -1.0, -1.0, 1.0])
 
     def _load(self, sequences):

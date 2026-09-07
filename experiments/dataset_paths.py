@@ -44,7 +44,7 @@ LIGHTSPEED_ROOT = Path(
 # AnyCam source root (for sys.path modifications)
 # Can be overridden with ANYCAM_SRC_ROOT environment variable
 ANYCAM_SRC_ROOT = Path(
-    os.environ.get("ANYCAM_SRC_ROOT", "/home/kalmanm/git/masters/anycam-extension")
+    os.environ.get("ANYCAM_SRC_ROOT", str(Path(__file__).resolve().parents[1]))
 )
 
 # Helper function to get paths as strings (for argparse defaults)

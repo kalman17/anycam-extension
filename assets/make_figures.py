@@ -7,6 +7,7 @@ from pathlib import Path
 plt.rcParams.update({"font.family": "Liberation Sans", "font.size": 7.5, "axes.linewidth": 0.6,
                      "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "axes.labelsize": 7.5, "legend.fontsize": 6.5})
 import os
+REPO = Path(__file__).resolve().parents[1]; OUT = Path(__file__).resolve().parent
 DARK = os.environ.get("THEME", "light") == "dark"
 SUF = "_dark" if DARK else ""
 BG = "#0d1117" if DARK else "white"
@@ -16,7 +17,7 @@ FILL_BB, FILL_DEC, FILL_HEAD, FILL_TRAIN = ("#1c2140", "#12301f", "#3a2412", "#1
 plt.rcParams.update({"figure.facecolor": BG, "axes.facecolor": BG, "savefig.facecolor": BG, "text.color": INK, "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK, "axes.edgecolor": GREY, "grid.color": GREY, "legend.labelcolor": INK})
 TEXTW = 6.5  # inches, = \linewidth of the PDF
 
-K = Path.home()/"git/masters/anycam-extension/data/eval/kitti_odom"
+K = Path(os.environ.get("KITTI_ODOM", REPO/"data/eval/kitti_odom"))
 poses = np.loadtxt(K/"poses/07.txt").reshape(-1,3,4); t = poses[:,:,3]
 frames = [Image.open(K/f"sequences/07/image_2/{i:06d}.jpg") for i in (0, 10, 20)]
 
@@ -109,7 +110,7 @@ box(0.44, 0.045, 0.27, 0.22, "flow re-projection loss", "unproject with depth an
 # gradients: vertical dashed line from the loss box up into the inference box
 seg([(0.575, 0.265), (0.575, 0.40)], MUTED, 0.7, (0,(2,2))); head(0.575, 0.40, 0.575, 0.43, MUTED, 0.7)
 cv.text(0.585, 0.36, "gradients", ha="left", va="center", fontsize=5.6, color=MUTED, style="italic")
-fig.savefig(f"overview_mcvo{SUF}.png", facecolor=BG, dpi=300, bbox_inches="tight", pad_inches=0.22); print("overview ok")
+fig.savefig(OUT/f"overview_mcvo{SUF}.png", facecolor=BG, dpi=300, bbox_inches="tight", pad_inches=0.22); print("overview ok")
 
 # ============================================================ results: same size, same style
 def style(ax):
@@ -117,7 +118,7 @@ def style(ax):
     ax.grid(True, ls=":", lw=0.5, alpha=0.6); ax.tick_params(length=2.5, width=0.5)
 
 FW, FH = 3.15, 2.25
-rows = [("MCVO (ours)", 75, 0.69, np.mean([0.46,0.89,0.19]), BLUE, True),
+rows = [("MCVO (ours)", 75, 0.69, np.mean([0.48,0.76,0.18]), BLUE, True),
         ("AnyCam", 413, 3.7, np.mean([0.50,0.74,0.20]), MUTED, False),
         ("Monodepth2", 13, 0.09, np.mean([0.80,0.77,0.30]), MUTED, False),
         ("π³", 171, 5.5, np.mean([0.22,0.26,0.11]), RED, False),
@@ -132,12 +133,12 @@ for name, lat, mem, rot, col, ours in rows:
 ax.set_xscale("log"); ax.set_xlabel("latency per 4-frame window, A40 (ms)"); ax.set_ylabel("median rotation error (°)")
 ax.set_xlim(9, 1500); ax.set_ylim(0.1, 0.75); style(ax)
 ax.text(0.02, 0.97, "bubble area = peak GPU memory\nred = trained with GT poses · grey/blue = no labels", transform=ax.transAxes, fontsize=5.8, va="top", color=GREY, linespacing=1.15)
-r_m, r_a = np.mean([0.46,0.89,0.19]), np.mean([0.50,0.74,0.20])
+r_m, r_a = np.mean([0.48,0.76,0.18]), np.mean([0.50,0.74,0.20])
 ax.annotate("", xy=(75*1.2, r_m), xytext=(413/1.15, r_a), arrowprops=dict(arrowstyle="-|>", mutation_scale=6, color=BLUE, lw=0.8), zorder=2)
 ax.text(165, 0.58, "5.5× faster, 5× less memory,\nsame rotation accuracy", fontsize=5.8, color=BLUE, ha="center", linespacing=1.15)
-fig.savefig(f"benchmark_mcvo{SUF}.png", bbox_inches="tight", pad_inches=0.18, facecolor=BG, dpi=300); print("benchmark ok")
+fig.savefig(OUT/f"benchmark_mcvo{SUF}.png", bbox_inches="tight", pad_inches=0.18, facecolor=BG, dpi=300); print("benchmark ok")
 
-d = json.load(open(Path.home()/"git/masters/anycam-extension/thesis_results/figures/figure_data.json"))
+d = json.load(open(REPO/"thesis_results/figures/figure_data.json"))
 fig, ax = plt.subplots(figsize=(FW, FH), dpi=300)
 nw = d["n_windows"]; xw = np.arange(nw)
 xa = np.linspace(0, nw-1, d["n_anycalib_points"])
@@ -148,4 +149,4 @@ ax.plot(xw, d["fat_fx"], color=BLUE, lw=1.3, label="ours, multi-frame calibratio
 ax.set_xlabel(f"window index, Sintel {d['sequence']}"); ax.set_ylabel("focal length (px)")
 lo, hi = np.percentile(np.r_[d["anycalib_fx"], d["fat_fx"]], [1, 99]); ax.set_ylim(min(lo, d["gt_fx"])*0.8, max(hi, d["gt_fx"])*1.25)
 style(ax); ax.set_ylim(0, 1250); ax.legend(loc="upper right", frameon=True, framealpha=0.9, facecolor=BG, edgecolor="none", ncol=1)
-fig.savefig(f"focal_mcvo{SUF}.png", bbox_inches="tight", pad_inches=0.18, facecolor=BG, dpi=300); print("focal ok")
+fig.savefig(OUT/f"focal_mcvo{SUF}.png", bbox_inches="tight", pad_inches=0.18, facecolor=BG, dpi=300); print("focal ok")
