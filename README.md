@@ -58,8 +58,11 @@ After the tenth block the patch tokens hold motion-aware features and each camer
 
 **Loss (self-supervised).** No poses, depths or intrinsics are ever given as labels. For each adjacent pair of frames the model's pose is turned into an optical-flow field and compared with the flow a pretrained flow network sees:
 
-$$\hat f_i(p) = \pi\!\big(K,\; R_i\,\pi^{-1}(K, p, D_i(p)) + t_i\big) - p, \qquad
-\mathcal{L} = \sum_i \sum_p \frac{\big|\hat f_i(p) - f_i(p)\big|}{\sigma_i(p)} + \log \sigma_i(p)$$
+$$
+\hat f_i(p) = \pi\big(K,\; R_i\,\pi^{-1}(K, p, D_i(p)) + t_i\big) - p
+\qquad
+\mathcal{L} = \sum_i \sum_p \frac{\big|\hat f_i(p) - f_i(p)\big|}{\sigma_i(p)} + \log \sigma_i(p)
+$$
 
 Read left to right: unproject pixel *p* of frame *i* with the teacher depth *D* and intrinsics *K* (π<sup>−1</sup>), move the 3-D point by the predicted rotation *R<sub>i</sub>* and translation *t<sub>i</sub>*, project it back into frame *i+1* (π); the displacement is the flow the pose *implies*. The loss is the L1 distance to the teacher flow *f*, divided by the predicted uncertainty σ, with a log σ penalty so the model cannot escape by calling everything uncertain (a Laplacian negative log-likelihood, the same form AnyCam uses). Three frozen networks supply *D*, *f* and *K* during training — UniDepth, UniMatch and AnyCalib — and none of them is needed once training is done.
 
