@@ -24,10 +24,9 @@ Same protocol for all models: NVIDIA A40, identical 4-frame windows, CUDA-synchr
 | Latency · peak memory (4-frame window) | **75 ms · 0.69 GiB** | 171 ms · 5.5 GiB | 203 ms · 7.0 GiB | 600 ms · 9.7 GiB | 413 ms · 3.7 GiB | 13 ms · 0.09 GiB |
 | Rotation error, Sintel / TUM / KITTI | 0.48° / 0.76° / 0.18° | 0.22° / 0.26° / 0.11° | 0.28° / 0.32° / 0.12° | 0.19° / 0.27° / 0.09° | 0.50° / 0.74° / 0.20° | 0.80° / 0.77° / 0.30° |
 | Heading error, KITTI (zero-shot for ours) | 5.1° | 2.2° | 4.6° | 1.3° | 28.6° | 1.2° (trained on KITTI) |
-| Focal error, Sintel / TUM / KITTI | pending¹ | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | — (pose only) |
+| Focal error, Sintel / TUM / KITTI | 31.1 % / 14.3 % / 37.1 % | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | — (pose only) |
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/benchmark_mcvo_dark.png"><img src="assets/benchmark_mcvo.png" alt="Median rotation error vs latency per 4-frame window; bubble area = peak GPU memory; red = trained with ground-truth poses, grey/blue = no labels" width="62%"></picture></p>
-<p align="center"><sub>¹ Calibration head re-distillation on the retrained weights in progress; previous head: 21.8 % / 13.3 % / 42.4 %.</sub></p>
 <p align="center"><sub>The same table as a picture: rotation error (mean of the three medians) against latency, bubble area = peak GPU memory.</sub></p>
 
 ### Results at a quick glance
@@ -36,7 +35,7 @@ Same protocol for all models: NVIDIA A40, identical 4-frame windows, CUDA-synchr
 - Compared to the large, billion-parameter supervised models, MCVO needs 8–14× less peak memory and has 2–8× lower latency, trains with no labels at any stage, and pays for it with roughly twice the rotation error (≈0.5° vs ≈0.25°).
 - Compared to the cheapest learned pose model (Monodepth2's pose network), MCVO is heavier and slower (75 ms vs 13 ms) but more accurate in rotation on Sintel and KITTI and equal on TUM. Monodepth2's network is trained per dataset with known intrinsics and cannot predict them; its KITTI heading advantage comes from being trained on KITTI.
 - Translation direction is volatile: strong on driving video (5° error on KITTI), weak on small-baseline indoor footage (75° on TUM-RGBD, 104° on Sintel; 90° is chance).
-- Intrinsics come from a small head distilled from AnyCalib, the single-frame calibration specialist used as a teacher during training. On the previous checkpoint it was on par with the teacher on the focal range of the training corpus (21.8 / 13.3 % vs 20.1 / 11.2 % on Sintel / TUM) and weaker on KITTI's narrow-FOV crops (42.4 % vs 18.4 %); the head is being re-distilled on the retrained weights and its numbers follow.¹
+- Intrinsics come from a 1.9 k-parameter head distilled from AnyCalib, the single-frame calibration specialist used as a teacher during training. It adds no cost on top of the pose and gets reasonably close to the teacher: 27.5 % average focal error over the three datasets vs 16.6 % for AnyCalib itself, closest indoors and furthest on KITTI's narrow-FOV crops.
 
 ## How MCVO works
 
@@ -74,14 +73,14 @@ Read left to right: unproject pixel *p* of frame *i* with the teacher depth *D* 
 import torch
 from mcvo.model import MCVO                       # PYTHONPATH=. from the repo root
 
-ck = torch.load("mcvo_e3p.pt", map_location="cpu", weights_only=False)   # from Hugging Face
+ck = torch.load("mcvo_e3p_calib.pt", map_location="cpu", weights_only=False)   # from Hugging Face
 a = ck["args"]
 model = MCVO(backbone=a["backbone"], d_model=a["d_model"], depth=a["depth"], heads=a["heads"]).eval()
 model.load_state_dict(ck["model_state_dict"])
 
 out = model(images=frames)      # frames: [1, N, 3, 336, 336], RGB in [0, 1]
 out["poses"]                    # [1, N, 1, 4, 4]  relative pose cam_i -> cam_{i+1}; the last one is identity
-out["calib"]                    # [1, N, 4]        fx, fy, cx, cy in pixels (needs the calibration-head checkpoint, mcvo_e3p_calib.pt)
+out["calib"]                    # [1, N, 4]        fx, fy, cx, cy in pixels
 ```
 
 Training and the benchmark are in [`mcvo/train.py`](mcvo/train.py) and [`experiments/honest_benchmark.py`](experiments/honest_benchmark.py) (the harness behind every number on this page; `--models mcvo:<ckpt>`); the cost benchmark is [`experiments/bench_latency.py`](experiments/bench_latency.py). Environment: `environment.yml`. Reproducing training needs the four raw datasets and the AnyCam preprocessing (`experiments/preprocess_dataset.py`).
@@ -89,7 +88,7 @@ Training and the benchmark are in [`mcvo/train.py`](mcvo/train.py) and [`experim
 **Limitations**
 
 - Translation direction on small-baseline indoor video is weak (near chance on TUM-RGBD and Sintel). Longer context, teacher distillation, an epipolar loss and motion-rich extra data did not change it; fixing the depth convention in the loss (see the changelog) improved it on KITTI and TUM, not on Sintel.
-- Intrinsics from the distilled head are teacher-level on the training corpus' focal range and weak on narrow-FOV driving crops.
+- Intrinsics from the distilled head trail the teacher (27.5 % vs 16.6 % average focal error), most on narrow-FOV driving crops; the head distilled on the previous weights did better on Sintel (21.8 % vs 31.1 %), so the retrained weights carry less focal information for that kind of footage.
 - Trajectory-level accuracy trails AnyCam's long-context inference (Sintel ATE 0.29 vs 0.10; TUM-RGBD 0.14): chaining 8-frame windows without bundle adjustment accumulates drift, and the retrained model drifts more on Sintel than the previous one (0.18) despite equal window rotation.
 - One training run, one seed; window-level medians without confidence intervals.
 - Every number on this page, with its corrections, is dated in [CHANGELOG.md](CHANGELOG.md).
@@ -124,7 +123,7 @@ CHANGELOG.md                 # every published number and its corrections, dated
 
 ## Full comparison
 
-Rows are metrics, columns are methods. **—** means the method cannot produce that quantity (or it does not apply); **n/m** means not measured here. The first six columns are **measured here** under one protocol: one process per model on the same NVIDIA A40, identical 4-frame windows (20 per model for cost, 16 per sequence for accuracy), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). The last four columns are **as reported by their authors** on other hardware and protocols — listed so the picture is complete. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3prime_final_square336,trajectories_e3p,thesis_final_e4_square336,S_*,kfix_*}`.
+Rows are metrics, columns are methods. **—** means the method cannot produce that quantity (or it does not apply); **n/m** means not measured here. The first six columns are **measured here** under one protocol: one process per model on the same NVIDIA A40, identical 4-frame windows (20 per model for cost, 16 per sequence for accuracy), CUDA-synchronised, warm-up excluded, end-to-end per call (images in → poses/intrinsics out, including each model's own preprocessing and, for AnyCam, its depth and flow networks). The last four columns are **as reported by their authors** on other hardware and protocols — listed so the picture is complete. Raw: [`honest_benchmarks/latency_summary.json`](honest_benchmarks/latency_summary.json), `experiments/bench_latency.py`, `honest_benchmarks/{e3prime_final_square336,e3p_calibA_square336,trajectories_e3p,thesis_final_e4_square336,S_*,kfix_*}`.
 
 | | **MCVO (ours)** | π³ | VGGT-1B | Depth Anything 3 | AnyCam (CVPR'25) | MCT + AnyCam (thesis) | DPVO* | FVO / VoT* | Monodepth2 pose net | ORB-SLAM3* |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -139,7 +138,7 @@ Rows are metrics, columns are methods. **—** means the method cannot produce t
 | Rotation error, median — Sintel / TUM / KITTI | 0.48° / 0.76° / 0.18° | 0.22° / 0.26° / 0.11° | 0.28° / 0.32° / 0.12° | 0.19° / 0.27° / 0.09° | 0.50° / 0.74° / 0.20° | 0.40° / 0.67° / 0.23° | n/m | n/m | 0.80° / 0.77° / 0.30° | n/m |
 | Heading error, KITTI (zero-shot for ours) | 5.1° | 2.2° | 4.6° | 1.3° | 28.6° | 28.2° | n/m | n/m | 1.2° (trained on KITTI) | n/m |
 | Heading error — Sintel / TUM | 104° / 75° | 27° / 34° | 38° / 37° | 19° / 32° | 49° / 50° | 47° / 65° | n/m | n/m | 57° / 86° | n/m |
-| Focal error — Sintel / TUM / KITTI | pending¹ | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | 20.7 % / 12.9 % / 20.4 % | — (needs intrinsics as input) | — (pose only) | — (pose only) | — (needs intrinsics as input) |
+| Focal error — Sintel / TUM / KITTI | 31.1 % / 14.3 % / 37.1 % (distilled head) | 25.2 % / 7.6 % / 28.9 % | 34.0 % / 25.8 % / 37.1 % | 24.4 % / 4.6 % / 15.8 % | 70.3 % / 14.6 % / 66.9 % | 20.7 % / 12.9 % / 20.4 % | — (needs intrinsics as input) | — (pose only) | — (pose only) | — (needs intrinsics as input) |
 | Trajectory (Sintel ATE, Sim3; 8-frame windows chained, no BA) | 0.29 | n/m | n/m | n/m | 0.10 | 0.18 | n/m (strong: BA inside) | n/m | n/m | n/m (strong) |
 | Source | this repo | [paper](https://arxiv.org/abs/2507.13347) | [paper](https://arxiv.org/abs/2503.11651) | [paper](https://arxiv.org/abs/2511.10647) | [paper](https://arxiv.org/abs/2503.23282) | this repo | [Teed 2023](https://proceedings.neurips.cc/paper_files/paper/2023/file/7ac484b0f1a1719ad5be9aa8c8455fbb-Paper-Conference.pdf) | [Yugay 2025](https://arxiv.org/abs/2510.03348) | measured here, `mono_640x192` weights of [Godard 2019](https://arxiv.org/abs/1806.01260) | [Campos 2021](https://arxiv.org/abs/2007.11898) |
 
@@ -189,4 +188,4 @@ If you use this code, please also cite the upstream **AnyCam** paper:
 
 This work builds directly on **[AnyCam](https://github.com/Brummi/anycam)** (Wimbauer et al., CVPR 2025) and **[AnyCalib](https://arxiv.org/abs/2503.12701)** (Tirado-Garín et al., 2025), and relies on **UniDepth** (Piccinelli et al.) and **UniMatch** (Xu et al.) as frozen helper networks. Supervision by **Daniil Sinitsyn**; thesis examined by **Prof. Dr. Daniel Cremers** at the Technical University of Munich, Chair of Computer Vision & Artificial Intelligence.
 
-<sub>Updated 7 September 2026 — see [CHANGELOG.md](CHANGELOG.md).</sub>
+<sub>Updated 8 September 2026 — see [CHANGELOG.md](CHANGELOG.md).</sub>

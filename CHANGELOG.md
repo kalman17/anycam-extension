@@ -9,15 +9,15 @@ normal; translation-induced flow had its near/far parallax inverted, which the n
 absorbed by predicting near-zero translation. Found with a check on ground-truth Sintel depth and
 poses (`mcvo/diagnose_teacher_geometry.py`): the near/far parallax ratio came out 0.47 where
 geometry demands ≈3.5. Fixed (`teacher_depth_for_geometry`), model retrained from scratch with the
-same recipe (E3′, `mcvo_e3p.pt`); calibration head re-distilled on it (`mcvo_e3p_calib.pt`, in progress).
+same recipe (E3′, `mcvo_e3p.pt`); calibration head re-distilled on it (`mcvo_e3p_calib.pt`).
 
 Window medians, square 336, same harness (old E3 → new E3′):
 rotation Sintel 0.46° → 0.48°, TUM-RGBD 0.89° → 0.76°, KITTI 0.19° → 0.18°;
 heading KITTI 7.0° → 5.1°, TUM-RGBD 90° → 75°, Sintel 81° → 104°;
-focal error: the calibration head is being re-distilled on the retrained weights; numbers follow (previous head 21.8 / 13.3 / 42.4 %).
+focal error (head re-distilled on the retrained weights, same recipe) Sintel 21.8 % → 31.1 %, TUM-RGBD 13.3 % → 14.3 %, KITTI 42.4 % → 37.1 %; a second distillation run gave 29.9 / 14.5 / 38.1 %, so the Sintel loss is real, not run-to-run noise.
 Trajectory-level (8-frame windows chained, Sim3 ATE): Sintel 0.18 → 0.29, TUM-RGBD 0.12 → 0.14 —
 the retrained model drifts more on Sintel despite equal window rotation; single seed, not yet understood.
-Rows: `honest_benchmarks/e3prime_final_square336`, `trajectories_e3p/`.
+Rows: `honest_benchmarks/e3prime_final_square336`, `e3p_calibA_square336`, `e3p_calibA_fast_square336`, `trajectories_e3p/`.
 The 2026-08-18 and 2026-08 entries below describe the model trained with the old convention; their
 numbers are kept as recorded.
 
