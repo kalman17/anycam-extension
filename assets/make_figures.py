@@ -118,26 +118,6 @@ def style(ax):
     ax.grid(True, ls=":", lw=0.5, alpha=0.6); ax.tick_params(length=2.5, width=0.5)
 
 FW, FH = 3.15, 2.25
-rows = [("MCVO (ours)", 75, 0.69, np.mean([0.48,0.76,0.18]), BLUE, True),
-        ("AnyCam", 413, 3.7, np.mean([0.50,0.74,0.20]), MUTED, False),
-        ("Monodepth2", 13, 0.09, np.mean([0.80,0.77,0.30]), MUTED, False),
-        ("π³", 171, 5.5, np.mean([0.22,0.26,0.11]), RED, False),
-        ("VGGT-1B", 203, 7.0, np.mean([0.28,0.32,0.12]), RED, False),
-        ("Depth Anything 3", 600, 9.7, np.mean([0.19,0.27,0.09]), RED, False)]
-fig, ax = plt.subplots(figsize=(FW, FH), dpi=300)
-for name, lat, mem, rot, col, ours in rows:
-    ax.scatter(lat, rot, s=25+mem*28, color=col, alpha=0.95 if ours else 0.6, edgecolor=BG, lw=0.6, zorder=3)
-    dx = 0.78 if name == "π³" else 1.14
-    dy = -0.05 if name in ("Monodepth2", "π³") else 0.018
-    ax.annotate(name, (lat, rot), xytext=(lat*dx, rot+dy), fontsize=6.5, color=col if ours else INK, fontweight="bold" if ours else "normal", zorder=4)
-ax.set_xscale("log"); ax.set_xlabel("latency per 4-frame window, A40 (ms)"); ax.set_ylabel("median rotation error (°)")
-ax.set_xlim(9, 1500); ax.set_ylim(0.1, 0.75); style(ax)
-ax.text(0.02, 0.97, "bubble area = peak GPU memory\nred = trained with GT poses · grey/blue = no labels", transform=ax.transAxes, fontsize=5.8, va="top", color=GREY, linespacing=1.15)
-r_m, r_a = np.mean([0.48,0.76,0.18]), np.mean([0.50,0.74,0.20])
-ax.annotate("", xy=(75*1.2, r_m), xytext=(413/1.15, r_a), arrowprops=dict(arrowstyle="-|>", mutation_scale=6, color=BLUE, lw=0.8), zorder=2)
-ax.text(165, 0.58, "5.5× faster, 5× less memory,\nsame rotation accuracy", fontsize=5.8, color=BLUE, ha="center", linespacing=1.15)
-fig.savefig(OUT/f"benchmark_mcvo{SUF}.png", bbox_inches="tight", pad_inches=0.18, facecolor=BG, dpi=300); print("benchmark ok")
-
 d = json.load(open(REPO/"thesis_results/figures/figure_data.json"))
 fig, ax = plt.subplots(figsize=(FW, FH), dpi=300)
 nw = d["n_windows"]; xw = np.arange(nw)
@@ -150,3 +130,40 @@ ax.set_xlabel(f"window index, Sintel {d['sequence']}"); ax.set_ylabel("focal len
 lo, hi = np.percentile(np.r_[d["anycalib_fx"], d["fat_fx"]], [1, 99]); ax.set_ylim(min(lo, d["gt_fx"])*0.8, max(hi, d["gt_fx"])*1.25)
 style(ax); ax.set_ylim(0, 1250); ax.legend(loc="upper right", frameon=True, framealpha=0.9, facecolor=BG, edgecolor="none", ncol=1)
 fig.savefig(OUT/f"focal_mcvo{SUF}.png", bbox_inches="tight", pad_inches=0.18, facecolor=BG, dpi=300); print("focal ok")
+
+# ============================================================ quick highlight table (image, so cells can be shaded)
+from matplotlib.patches import Rectangle
+RULE = "#30363d" if DARK else "#e3e3e3"
+BEST = "#3a2412" if DARK else "#fdf1e6"
+OURS = ORANGE
+cols = ["MCVO (ours)", "MCT + AnyCam\n(ours, thesis)", "AnyCam\n(CVPR 2025)"]
+# (label, subtitle, values as text, index of best or None, note per cell)
+rows = [
+ ("Latency",                    "ms per 4-frame window, A40",                                   ["75", "820", "413"], 0),
+ ("Peak GPU memory",            "GiB per 4-frame window",                                        ["0.69", "5.0", "3.7"], 0),
+ ("Rotation error",             "geodesic angle to GT rotation, median per dataset, mean of 3",  ["0.47°", "0.43°", "0.48°"], 1),
+ ("Translation direction error","angle to GT translation, median per dataset, mean of 3",        ["62°", "47°", "43°"], 2),
+ ("Focal length error",         "|f − f_gt| / f_gt, median per dataset, mean of 3",              ["27.5 %", "18.0 %", "50.6 %"], 1),
+]
+W, RH, HH = 7.6, 0.50, 0.62
+H = HH + RH*len(rows) + 0.25
+fig = plt.figure(figsize=(W, H), dpi=250); ax = fig.add_axes([0,0,1,1]); ax.set_axis_off()
+ax.set_xlim(0, W); ax.set_ylim(0, H)
+x_label, x0 = 0.18, 3.15; cw = (W - x0 - 0.15) / 3
+def cx(j): return x0 + cw*(j+0.5)
+# header
+for j, c in enumerate(cols):
+    ax.text(cx(j), H-HH/2, c, ha="center", va="center", fontsize=9.2, color=INK, fontweight="bold" if j==0 else "normal", linespacing=1.15)
+ax.plot([x_label, W-0.15], [H-HH, H-HH], color=RULE, lw=0.8)
+for i, (lab, sub, vals, best) in enumerate(rows):
+    y_top = H - HH - RH*i; y_mid = y_top - RH/2
+    if best is not None:
+        ax.add_patch(Rectangle((x0 + cw*best, y_top-RH), cw, RH, fc=BEST, ec="none", zorder=0))
+    ax.text(x_label, y_mid+0.075, lab, ha="left", va="center", fontsize=8.6, color=INK)
+    ax.text(x_label, y_mid-0.105, sub, ha="left", va="center", fontsize=6.3, color=GREY)
+    for j, v in enumerate(vals):
+        ax.text(cx(j), y_mid, v, ha="center", va="center", fontsize=9.4, color=INK, fontweight="bold" if j==best else "normal")
+    ax.plot([x_label, W-0.15], [y_top-RH, y_top-RH], color=RULE, lw=0.6)
+# outline our column
+ax.add_patch(FancyBboxPatch((x0+0.02, 0.22), cw-0.04, H-0.22-0.05, boxstyle="round,pad=0,rounding_size=0.08", fc="none", ec=OURS, lw=1.3, zorder=5))
+fig.savefig(OUT/f"quickview{SUF}.png", facecolor=BG, dpi=250, bbox_inches="tight", pad_inches=0.12); print("quickview ok")
